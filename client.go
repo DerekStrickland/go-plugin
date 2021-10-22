@@ -22,8 +22,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/hashicorp/go-hclog"
 	"google.golang.org/grpc"
+
+	"github.com/hashicorp/go-hclog"
 )
 
 // If this is 1, then we've called CleanupClients. This can be used
@@ -663,7 +664,7 @@ func (c *Client) Start() (addr net.Addr, err error) {
 	}()
 
 	// Make sure after we exit we read the lines from stdout forever
-	// so they don't block since it is a pipe.
+	// so that they don't block since it is a pipe.
 	// The scanner goroutine above will close this, but track it with a wait
 	// group for completeness.
 	c.clientWaitGroup.Add(1)
