@@ -64,7 +64,7 @@ $ go build -o kv
 $ cargo build --manifest-path=plugin-rust/Cargo.toml --bin plugin-rust --release
 
 # This tells the KV binary to use the "plugin-rust" binary
-$ export KV_PLUGIN="./plugin-rust/target/release/plugin-rust"
+$ export KV_PLUGIN="./plugin-rust/target/debug/plugin-rust"
 
 # Read and write
 $ ./kv put foo bar

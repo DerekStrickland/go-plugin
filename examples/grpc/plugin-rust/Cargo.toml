@@ -2,7 +2,7 @@
 name = "plugin-rust"
 version = "0.1.0"
 authors = ["DerekStrickland <1111455+DerekStrickland@users.noreply.github.com>"]
-edition = "2018"
+edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -31,8 +31,11 @@ tonic-build = "0.5.2"
 prost-types = "0.8.0"
 
 [patch.crates-io]
+# tonic-build = { git = 'https://github.com/hyperium/tonic' }
 prost = { git = "https://github.com/tokio-rs/prost" }
-tonic-build = { git = "https://github.com/DerekStrickland/tonic", rev="937060692f228f4d3eaa2c18e6a844f568631352" }
+#prost-build = { git = "https://github.com/tokio-rs/prost" }
+prost-build = { path = "../../../../prost/prost-build" }
+tonic-build = { path = '../../../../tonic/tonic-build' }
 
 # server binary
 [[bin]]
