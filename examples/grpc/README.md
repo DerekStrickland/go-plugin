@@ -61,10 +61,10 @@ This plugin is written in Rust.
 $ go build -o kv
 
 # This builds the plugin written in Rust
-$ cargo build --manifest-path=plugin-rust/Cargo.toml --bin plugin-rust --release
+$ cargo build --manifest-path=plugin-rust/Cargo.toml --release
 
 # This tells the KV binary to use the "plugin-rust" binary
-$ export KV_PLUGIN="./plugin-rust/target/debug/plugin-rust"
+$ export KV_PLUGIN=./plugin-rust/target/release/kv-rust-grpc
 
 # Read and write
 $ ./kv put foo bar

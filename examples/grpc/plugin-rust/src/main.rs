@@ -20,7 +20,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr: SocketAddr = "0.0.0.0:5001".parse().expect("SocketAddr parse");
     //let listener: TcpListener = TcpListener::bind(addr).await.expect("bind");
 
-    //let (_, shutdown_rx) = oneshot::channel::<()>();
+    // let (_, shutdown_rx) = oneshot::channel::<()>();
 
     let (mut health_reporter, health_service) = tonic_health::server::health_reporter();
     health_reporter.set_serving::<KvServer<KV>>().await;
@@ -29,19 +29,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let plugin_server = KV::default();
 
-    //let server = tokio::spawn(async move {
+    // let server = tokio::spawn(async move {
     Server::builder()
         .add_service(health_service)
         .add_service(KvServer::new(plugin_server))
-        .serve(addr)
-        //.serve_with_incoming_shutdown(listener, shutdown_rx.map(drop))
+        //.serve(addr)
+        //.serve_with_shutdown("0.0.0.0:5001".parse().unwrap(), shutdown_rx.map(drop))
+        .serve_with_shutdown(addr, shutdown())
         .await
         .unwrap();
     //});
 
+    // match listenfd::ListenFd::from_env().take_tcp_listener(0)? {
+    //     Some(listener) => {
+    //         println!("fd listener");
+    //         let listener = tokio_stream::wrappers::TcpListenerStream::new(
+    //             tokio::net::TcpListener::from_std(listener)?,
+    //         );
+    //         server.serve_with_incoming(listener).await?;
+    //     }
+    //     None => {
+    //         println!("socket listener");
+    //         server.serve(addr).await?;
+    //     }
+    // }
+
     // server.await.expect("server shutdown");
 
     Ok(())
+}
+
+async fn shutdown() {
+    tokio::signal::ctrl_c()
+        .await
+        .expect("failed to install CTRL+C signal handler");
 }
 
 // Implement a HealthReporter handler for tonic.

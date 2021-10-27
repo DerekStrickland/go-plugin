@@ -1,5 +1,5 @@
 [package]
-name = "plugin-rust"
+name = "kv-rust-grpc"
 version = "0.1.0"
 authors = ["DerekStrickland <1111455+DerekStrickland@users.noreply.github.com>"]
 edition = "2021"
@@ -11,6 +11,7 @@ async-stream = "0.2"
 env_logger = "0.9.0"
 futures-core = "0.3"
 futures-util = "0.3"
+listenfd = "0.3"
 log = "0.4.14"
 prost = "0.8.0"
 prost-types = "0.8.0"
@@ -37,12 +38,3 @@ prost = { git = "https://github.com/tokio-rs/prost" }
 prost-build = { path = "../../../../prost/prost-build" }
 tonic-build = { path = '../../../../tonic/tonic-build' }
 
-# server binary
-[[bin]]
-name = "plugin-rust"
-path = "src/main.rs"
-
-# client binary
-[[bin]]
-name = "test-client"
-path = "src/test_client.rs"

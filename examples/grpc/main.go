@@ -12,6 +12,7 @@ import (
 )
 
 func main() {
+	defer os.Exit(0)
 	// We don't want to see the plugin logs.
 	log.SetOutput(ioutil.Discard)
 
@@ -64,5 +65,4 @@ func main() {
 		fmt.Printf("Please only use 'get' or 'put', given: %q", os.Args[0])
 		os.Exit(1)
 	}
-	os.Exit(0)
 }
