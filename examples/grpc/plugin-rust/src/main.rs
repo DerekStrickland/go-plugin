@@ -1,12 +1,19 @@
-// use futures_util::FutureExt;
-use std::net::SocketAddr; //, TcpListener};
+// use std::fs;
+// use std::io::Write;
+use std::net::SocketAddr;
+// use std::pin::Pin;
+// use std::task::{Context, Poll};
 
-// use tokio::sync::oneshot;
+// use futures_core::Stream;
+use futures_util::FutureExt;
+use tokio::sync::oneshot;
+// use tokio::signal::unix::{signal, SignalKind};
 use tonic::transport::Server;
 use tonic_health::server::HealthReporter;
 
 use crate::proto::proto::kv_server::KvServer;
 use kv::KV;
+// use tokio::sync::mpsc;
 
 mod kv;
 mod proto;
@@ -17,10 +24,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // https://github.com/hashicorp/go-plugin/blob/master/docs/guide-plugin-write-non-go.md#4-output-handshake-information
     println!("1|1|tcp|127.0.0.1:5001|grpc");
 
-    let addr: SocketAddr = "0.0.0.0:5001".parse().expect("SocketAddr parse");
-    //let listener: TcpListener = TcpListener::bind(addr).await.expect("bind");
+    let (_, rx) = oneshot::channel::<()>();
 
-    // let (_, shutdown_rx) = oneshot::channel::<()>();
+    let addr: SocketAddr = "0.0.0.0:5001".parse().expect("SocketAddr parse");
 
     let (mut health_reporter, health_service) = tonic_health::server::health_reporter();
     health_reporter.set_serving::<KvServer<KV>>().await;
@@ -29,43 +35,65 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let plugin_server = KV::default();
 
-    // let server = tokio::spawn(async move {
+    //let join_handle = tokio::spawn(async move {
     Server::builder()
         .add_service(health_service)
         .add_service(KvServer::new(plugin_server))
         //.serve(addr)
-        //.serve_with_shutdown("0.0.0.0:5001".parse().unwrap(), shutdown_rx.map(drop))
-        .serve_with_shutdown(addr, shutdown())
-        .await
-        .unwrap();
+        .serve_with_shutdown(addr, rx.map(drop)) //rx.recv().map(drop)
+        .await?;
+    // .unwrap();
     //});
 
-    // match listenfd::ListenFd::from_env().take_tcp_listener(0)? {
-    //     Some(listener) => {
-    //         println!("fd listener");
-    //         let listener = tokio_stream::wrappers::TcpListenerStream::new(
-    //             tokio::net::TcpListener::from_std(listener)?,
-    //         );
-    //         server.serve_with_incoming(listener).await?;
-    //     }
-    //     None => {
-    //         println!("socket listener");
-    //         server.serve(addr).await?;
-    //     }
+    // let mut hangup = signal(SignalKind::hangup())?;
+    // let mut interrupt = signal(SignalKind::interrupt())?;
+    // let mut terminate = signal(SignalKind::terminate())?;
+    // let mut disconnect = signal(SignalKind)
+    //
+    // tokio::select! {
+    //     _ = hangup.recv() => {
+    //         let _ = log(String::from("SIGHUP received"));
+    //         tx.send(()).unwrap();
+    //     },
+    //     _ = interrupt.recv() => {
+    //         let _ = log(String::from("SIGINT received"));
+    //         tx.send(()).unwrap();
+    //     },
+    //     _ = terminate.recv() => {
+    //         let _ = log(String::from("SIGTERM received"));
+    //         tx.send(()).unwrap();
+    //     },
     // }
 
-    // server.await.expect("server shutdown");
+    // join_handle.await.unwrap();
 
     Ok(())
 }
 
-async fn shutdown() {
-    tokio::signal::ctrl_c()
-        .await
-        .expect("failed to install CTRL+C signal handler");
-}
+// fn log(msg: String) -> tokio::io::Result<()> {
+//     let file_name: String = "kv_log".to_owned();
+//
+//     let mut file = fs::OpenOptions::new()
+//         .write(true)
+//         .append(true)
+//         .open(file_name)
+//         .unwrap();
+//
+//     file.write_all(msg.as_bytes())
+// }
 
 // Implement a HealthReporter handler for tonic.
 async fn driver_service_status(mut reporter: HealthReporter) {
     reporter.set_serving::<KvServer<KV>>().await;
 }
+
+// struct ClientDisconnect(oneshot::Sender<()>);
+//
+// impl Stream for ClientDisconnect {
+//     type Item = Result<EchoResponse, Status>;
+//
+//     fn poll_next(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+//         // A stream that never resolves to anything....
+//         Poll::Pending
+//     }
+// }
