@@ -7,7 +7,13 @@ fn main() -> Result<()> {
         .compile_well_known_types(true)
         .include_file("mod.rs")
         .type_attribute(".", "#[derive(serde::Deserialize)]")
-        .compile(&["../proto/kv.proto"], &["../proto"])
+        .compile(
+            &[
+                "../proto/kv.proto",
+                "../../../internal/plugin/grpc_stdio.proto",
+            ],
+            &["../proto", "../../../internal/plugin"],
+        )
         .unwrap();
 
     Ok(())
