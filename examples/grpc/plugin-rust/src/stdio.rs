@@ -1,6 +1,3 @@
-use async_stream::*;
-use futures_core::Stream;
-
 use tonic::{Request, Response, Status};
 
 use crate::proto::google::protobuf::Empty;
@@ -9,14 +6,11 @@ use crate::proto::plugin::grpc_stdio_server::GrpcStdio;
 use crate::proto::plugin::StdioData;
 use std::pin::Pin;
 
-use futures_util::AsyncBufReadExt;
-use std::io;
-use std::io::stdout;
-// use crate::proto::plugin::stdio_data::Channel;
-// use futures_util::StreamExt;
-// use tokio::io::{AsyncReadExt, AsyncSeekExt};
-// use tokio::signal::unix::signal;
-// use tokio::signal::unix::SignalKind;
+use futures_util::{future, AsyncReadExt, SinkExt, Stream, StreamExt};
+use std::task::{Context, Poll};
+use tokio::io;
+use tokio::signal::unix::signal;
+use tokio::signal::unix::SignalKind;
 
 pub struct StdioServer {
     // shutdown_rx: oneshot::Receiver<()>,
@@ -43,55 +37,50 @@ impl GrpcStdio for StdioServer {
         &self,
         _: Request<Empty>,
     ) -> Result<Response<Self::StreamStdioStream>, Status> {
-        // block on stdout/stderr, and terminate gracefully on interrupt.
-        // TODO: This might require DropReceiver instead.
-        // let data = try_stream! {
-        //     let mut buf = String::new();
-        //     _ = io::stdout().read_line(&mut buf)? => {
-        //         yield StdioData{
-        //             channel: Channel::Stdout as i32,
-        //             data: buf.as_bytes()
-        //         };
-        //     },
-        //     _ = io::stderr().read_line(&mut buf)? => {
-        //         yield StdioData{
-        //             channel: Channel::Stderr as i32,
-        //             data: buf.as_bytes()
-        //         };
-        //     },
-        //     _ = signal(SignalKind::interrupt())? => {
-        //         yield StdioData {
-        //             channel: Channel::Stdout as i32,
-        //             data: String::from("").to_vec(),
-        //         };
-        //     }
-        // };
-
-        let mut buf = String::new();
-        let mut stdout_stream = io::stdout()?;
-
-        let data = tokio_select! {
-            _ = stdout_stream.next() => {
-                yield StdioData{
-                    channel: Channel::Stdout as i32,
-                    data: buf.as_bytes()
-                };
-            },
-            _ = io::stderr().read_line(&mut buf)? => {
-                yield StdioData{
-                    channel: Channel::Stderr as i32,
-                    data: buf.as_bytes()
-                };
-            },
-            _ = signal(SignalKind::interrupt())? => {
-                yield StdioData {
-                    channel: Channel::Stdout as i32,
-                    data: String::from("").to_vec(),
-                };
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut stdout = io::stdout();
+        let mut stderr = io::stderr();
+        // Endlessly stream stdout/stderr until interrupt received
+        loop {
+            tokio::select! {
+                buf = stdout.read_to_end().await => {
+                    tx.send(StdioData{
+                        channel: Channel::Stdout as i32,
+                        data: buf.as_bytes()
+                    });
+                    continue
+                },
+                buf = stderr.read_to_end().await => {
+                    tx.send(StdioData{
+                        channel: Channel::Stderr as i32,
+                        data: buf.as_bytes()
+                    });
+                    continue
+                },
+                _ = shutdown_rx.recv() => break,
+                _ = (Err(e), _) | (_, Err(e)) => {
+                    tx.Send(Err(e.into()));
+                    continue
+                }
+                None => break,
             }
-        };
+        }
 
-        Ok(Response::new(Box::pin(data) as Self::StreamStdioStream))
+        Ok(Response::new(
+            Box::pin(ClientDisconnect(tx)) as Self::StreamStdioStream
+        ))
+        //Ok(Response::new(Box::pin(data) as Self::StreamStdioStream))
+    }
+}
+
+struct ClientDisconnect(tokio::sync::mpsc::UnboundedSender<()>);
+
+impl Stream for ClientDisconnect {
+    type Item = Result<StdioData, Status>;
+
+    fn poll_next(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        // A stream that never resolves to anything....
+        Poll::Pending
     }
 }
 
@@ -170,3 +159,81 @@ impl GrpcStdio for StdioServer {
 //         }
 //     }
 // });
+
+// block on stdout/stderr, and terminate gracefully on interrupt.
+// TODO: This might require DropReceiver instead.
+// let data = try_stream! {
+//     let mut buf = String::new();
+//     _ = io::stdout().read_line(&mut buf)? => {
+//         yield StdioData{
+//             channel: Channel::Stdout as i32,
+//             data: buf.as_bytes()
+//         };
+//     },
+//     _ = io::stderr().read_line(&mut buf)? => {
+//         yield StdioData{
+//             channel: Channel::Stderr as i32,
+//             data: buf.as_bytes()
+//         };
+//     },
+//     _ = signal(SignalKind::interrupt())? => {
+//         yield StdioData {
+//             channel: Channel::Stdout as i32,
+//             data: String::from("").to_vec(),
+//         };
+//     }
+// };
+
+// let mut buf = String::new();
+// let mut stdout_stream = io::stdout();
+// stdout_stream.
+//
+// let stdout = io::stdout().poll_flush_unpin();
+//
+// let data = tokio_select! {
+//     Some(buf) = stdout_stream.poll_flush_unpin() => {
+//         yield StdioData{
+//             channel: Channel::Stdout as i32,
+//             data: buf.as_bytes()
+//         };
+//     },
+//     _ = io::stderr().read_line(&mut buf)? => {
+//         yield StdioData{
+//             channel: Channel::Stderr as i32,
+//             data: buf.as_bytes()
+//         };
+//     },
+//     _ = signal(SignalKind::interrupt())? => {
+//         yield StdioData {
+//             channel: Channel::Stdout as i32,
+//             data: String::from("").to_vec(),
+//         };
+//     }
+// };
+
+// let mut stdout = FramedWrite::new(io::stdout(), BytesCodec::new());
+// let mut stderr = FramedWrite::new(io::stderr(), BytesCodec::new());
+// // let mut sink = FramedWrite::new(w, BytesCodec::new());
+// // filter map Result<BytesMut, Error> stream into just a Bytes stream to match stdout Sink
+// // on the event of an Error, log the error and end the stream
+// let mut out_stream = FramedRead::new(io::stdout(), BytesCodec::new())
+// .filter_map(|i| match i {
+// //BytesMut into Bytes
+// Ok(i) => future::ready(Some(i.freeze())),
+// Err(e) => {
+// println!("failed to read from stdout; error={}", e);
+// future::ready(None)
+// }
+// })
+// .map(Ok);
+//
+// let mut err_stream = FramedRead::new(io::stderr(), BytesCodec::new())
+// .filter_map(|i| match i {
+// //BytesMut into Bytes
+// Ok(i) => future::ready(Some(i.freeze())),
+// Err(e) => {
+// println!("failed to read from stderr; error={}", e);
+// future::ready(None)
+// }
+// })
+// .map(Ok);
