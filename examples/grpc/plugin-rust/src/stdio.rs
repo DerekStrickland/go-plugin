@@ -1,16 +1,12 @@
-use tonic::{Request, Response, Status};
-
 use crate::proto::google::protobuf::Empty;
 use crate::proto::plugin::grpc_stdio_server::GrpcStdio;
-
+use crate::proto::plugin::stdio_data::Channel;
 use crate::proto::plugin::StdioData;
 use std::pin::Pin;
 
-use futures_util::{future, AsyncReadExt, SinkExt, Stream, StreamExt};
-use std::task::{Context, Poll};
-use tokio::io;
-use tokio::signal::unix::signal;
-use tokio::signal::unix::SignalKind;
+use futures_util::stream::{Stream, TryStreamExt};
+use tokio_util::io::ReaderStream;
+use tonic::{Request, Response, Status};
 
 pub struct StdioServer {
     // shutdown_rx: oneshot::Receiver<()>,
@@ -30,6 +26,7 @@ impl core::default::Default for StdioServer {
 
 #[tonic::async_trait]
 impl GrpcStdio for StdioServer {
+    // type StreamStdioStream = BoxStream<'static, Result<StdioData, Status>>;
     type StreamStdioStream =
         Pin<Box<dyn Stream<Item = Result<StdioData, Status>> + Send + Sync + 'static>>;
 
@@ -37,53 +34,63 @@ impl GrpcStdio for StdioServer {
         &self,
         _: Request<Empty>,
     ) -> Result<Response<Self::StreamStdioStream>, Status> {
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        let mut stdout = io::stdout();
-        let mut stderr = io::stderr();
-        // Endlessly stream stdout/stderr until interrupt received
-        loop {
-            tokio::select! {
-                buf = stdout.read_to_end().await => {
-                    tx.send(StdioData{
-                        channel: Channel::Stdout as i32,
-                        data: buf.as_bytes()
-                    });
-                    continue
-                },
-                buf = stderr.read_to_end().await => {
-                    tx.send(StdioData{
-                        channel: Channel::Stderr as i32,
-                        data: buf.as_bytes()
-                    });
-                    continue
-                },
-                _ = shutdown_rx.recv() => break,
-                _ = (Err(e), _) | (_, Err(e)) => {
-                    tx.Send(Err(e.into()));
-                    continue
-                }
-                None => break,
-            }
-        }
+        let stream = ReaderStream::new(tokio::io::stdin())
+            .map_ok(|buf| StdioData {
+                channel: Channel::Stdout as i32,
+                data: buf.to_vec(),
+            })
+            .map_err(|err| Status::unknown(err.to_string()));
 
-        Ok(Response::new(
-            Box::pin(ClientDisconnect(tx)) as Self::StreamStdioStream
-        ))
-        //Ok(Response::new(Box::pin(data) as Self::StreamStdioStream))
+        let stream = Box::pin(stream);
+
+        Ok(Response::new(stream))
     }
 }
 
-struct ClientDisconnect(tokio::sync::mpsc::UnboundedSender<()>);
-
-impl Stream for ClientDisconnect {
-    type Item = Result<StdioData, Status>;
-
-    fn poll_next(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        // A stream that never resolves to anything....
-        Poll::Pending
-    }
-}
-
+// struct ClientDisconnect(tokio::sync::mpsc::UnboundedSender<()>);
+//
+// impl Stream for ClientDisconnect {
+//     type Item = Result<StdioData, Status>;
+//
+//     fn poll_next(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+//         // A stream that never resolves to anything....
+//         Poll::Pending
+//     }
+// }
+//
+// let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+// let mut stdout = io::stdout();
+// let mut stderr = io::stderr();
+// // Endlessly stream stdout/stderr until interrupt received
+// loop {
+// tokio::select! {
+// buf = stdout.read_to_end().await => {
+// tx.send(StdioData{
+// channel: Channel::Stdout as i32,
+// data: buf.as_bytes()
+// });
+// continue
+// },
+// buf = stderr.read_to_end().await => {
+// tx.send(StdioData{
+// channel: Channel::Stderr as i32,
+// data: buf.as_bytes()
+// });
+// continue
+// },
+// _ = shutdown_rx.recv() => break,
+// _ = (Err(e), _) | (_, Err(e)) => {
+// tx.Send(Err(e.into()));
+// continue
+// }
+// None => break,
+// }
+// }
+//
+// Ok(Response::new(
+// Box::pin(ClientDisconnect(tx)) as Self::StreamStdioStream
+// ))
+// //Ok(Response::new(Box::pin(data) as Self::StreamStdioStream))
 // let mut hangup = signal(SignalKind::hangup())?;
 // let mut interrupt = signal(SignalKind::interrupt())?;
 // let mut terminate = signal(SignalKind::terminate())?;
