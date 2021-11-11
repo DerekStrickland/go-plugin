@@ -25,6 +25,7 @@ tokio-test = "0.4.2"
 tokio-util = { version = "0.6.9", features = ["io"]}
 tonic = "0.5.2"
 tonic-health = "0.4.1"
+uuid = { version = "0.8.2", features = ["v4"]}
 
 [build-dependencies]
 prost = "0.8.0"

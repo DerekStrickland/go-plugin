@@ -4,99 +4,118 @@ use crate::proto::plugin::stdio_data::Channel;
 use crate::proto::plugin::StdioData;
 use std::pin::Pin;
 
-use futures_util::{AsyncReadExt, SinkExt, Stream, StreamExt};
-use tokio::sync::mpsc;
-use tokio_util::codec::{FramedWrite, LinesCodec};
+use futures_util::{Stream, StreamExt};
+use gag::BufferRedirect;
+use std::io::Read;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio_stream::wrappers::UnboundedReceiverStream;
 use tonic::{Request, Response, Status};
+use uuid::Uuid;
 
 pub struct StdioServer {
     // This is the channel we send data on.
-    tx: mpsc::UnboundedSender<core::result::Result<StdioData, Status>>,
-    rx: tokio::sync::oneshot::Receiver<()>,
+    tx: tokio::sync::mpsc::UnboundedSender<_>,
+    rx: tokio::sync::mpsc::UnboundedReceiver<_>,
 }
 
 impl core::default::Default for StdioServer {
     fn default() -> Self {
-        let (tx, _) =
-            tokio::sync::mpsc::unbounded_channel::<core::result::Result<StdioData, Status>>();
-        let (_, mut rx) = tokio::sync::oneshot::channel::<()>();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+
         StdioServer { tx, rx }
     }
 }
 
 #[tonic::async_trait]
 impl GrpcStdio for StdioServer {
-    type StreamStdioStream = Pin<
-        Box<dyn Stream<Item = core::result::Result<StdioData, Status>> + Send + Sync + 'static>,
-    >;
+    type StreamStdioStream =
+        Pin<Box<dyn Stream<Item = Result<StdioData, Status>> + Send + Sync + 'static>>;
 
     async fn stream_stdio(
         &self,
         _: Request<Empty>,
-    ) -> core::result::Result<Response<Self::StreamStdioStream>, Status> {
+    ) -> Result<Response<Self::StreamStdioStream>, Status> {
         // Flyweight initialized with empty data, and default channel to stdout
-        let mut result: StdioData = StdioData {
+        let mut response: StdioData = StdioData {
             channel: Channel::Stdout as i32,
             data: "".as_bytes().to_vec(),
         };
 
-        let mut status = Status::unknown("unset");
-        let mut stdout = tokio::io::stdout();
-        let mut stderr = tokio::io::stderr();
+        // This is our inverse sentinel value we'll use to ensure that we can
+        // detect an error condition has occurred.
+        let sentinel = Uuid::new_v4().to_string();
+        // This wraps our sentinel value to test if we've hit an error status.
+        // The only error status we expect at this time is a tx.send error
+        // which indicates the client has disconnected.
+        let mut status = Status::unknown(sentinel);
+        let mut out_buf = BufferRedirect::stdout()?;
+        let mut out_data = Vec::with_capacity(1024);
+        let mut err_buf = BufferRedirect::stderr()?;
+        let mut err_data = Vec::with_capacity(1024);
 
-        // https://users.rust-lang.org/t/redirect-stdio-pipes-and-file-descriptors/50751/4
-        nix::unistd::dup2(tokio::io::stdout().as_raw_fd(), standard_io.as_raw_fd());
-        nix::unistd::dup2(tokio::io::stderr().as_raw_fd(), standard_io.as_raw_fd());
-
-        let mut out_tx = FramedWrite::new(stdout, LinesCodec::new_with_max_length(1024))
-            .with(|line| [line][..].into());
-
-        let mut err_tx = FramedWrite::new(stderr, LinesCodec::new_with_max_length(1024))
-            .with(|line| [line][..].into());
-
-        while let Some(out_line) = out_tx.next().await {
-            match out_line {
-                Ok(line) => {
-                    result.channel = Channel::Stdout as i32;
-                    result.data = line;
-                    self.tx.send(Ok(result.clone()));
-                    ()
+        tokio::spawn(async move {
+            loop {
+                // Read the stdout buffer
+                out_buf.read(&mut out_data);
+                // Send the stdout bytes
+                if out_data.len() > 0 {
+                    response.channel = Channel::Stdout as i32;
+                    response.data = out_data.clone();
+                    out_data.clear();
+                    match self.tx.send(Ok(response.clone())) {
+                        Ok(_) => {}
+                        Err(e) => status = Status::cancelled(e.to_string()),
+                    }
                 }
-                Err(e) => {
-                    self.tx.send(Err(e));
-                    ()
+
+                // Break on error.
+                if !status.message().eq(&sentinel) {
+                    break;
+                }
+
+                // Read the stderr buffer
+                err_buf.read(&mut err_data);
+                // send the stderr bytes
+                if err_data.len() > 0 {
+                    response.channel = Channel::Stdout as i32;
+                    response.data = err_data.clone();
+                    err_data.clear();
+                    match self.tx.send(Ok(response.clone())) {
+                        Ok(_) => {}
+                        Err(e) => status = Status::cancelled(e.to_string()),
+                    }
+                }
+
+                // Break on error.
+                if !status.message().eq(&sentinel) {
+                    break;
                 }
             }
-        }
 
-        while let Some(err_line) = err_tx.next().await {
-            match err_line {
-                Ok(line) => {
-                    result.channel = Channel::Stderr as i32;
-                    result.data = line;
-                    self.tx.send(Ok(result.clone()));
-                }
-                Err(e) => self.tx.send(Err(e)),
+            if !status.message().eq(&sentinel) {
+                // // TODO: Inspect client drop vs other errors.
+                // Ok(Response::new(Box::pin(status) as Self::StreamStdioStream))
+                response.channel = Channel::Stderr as i32;
+                response.data = status.message().as_bytes().to_vec();
+            } else {
+                // Can this ever fire? Need a shutdown broadcast receiver from main.
+                response.channel = Channel::Stdout as i32;
+                // TODO: Add a shutdown reason if detectable?
+                response.data = "plugin shutdown".as_bytes().to_vec();
             }
-        }
+        });
 
-        self.rx.recv().await;
+        // Disconnect the stdio sinks.
+        // tokio::io::stdout()
+        //     .write_all(out_buf.into_inner().bytes())
+        //     .await;
+        // tokio::io::stderr()
+        //     .write_all(err_buf.into_inner().bytes())
+        //     .await;
 
-        if !status.message().eq("unset") {
-            Err(status.message())
-        }
-
-        result.channel = Channel::Stdout as i32;
-        result.data = "".as_bytes().to_vec();
-
-        Ok(Response::new(Box::pin(result) as Self::StreamStdioStream))
-        // let stream = ReaderStream::new(tokio::io::stdin())
-        //     .map_ok(|buf| StdioData {
-        //         channel: Channel::Stdout as i32,
-        //         data: buf.to_vec(),
-        //     })
-        //     .map_err(|err| Status::unknown(err.to_string()));
-        // Ok(Response::new(stream))
+        Ok(Response::new(
+            Box::pin(UnboundedReceiverStream::new(self.rx)) as Self::StreamStdioStream,
+        ))
     }
 }
 
