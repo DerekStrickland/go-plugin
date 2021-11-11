@@ -10,7 +10,8 @@ edition = "2021"
 async-stream = "0.2"
 env_logger = "0.9.0"
 futures-core = "0.3"
-futures-util = {version = "0.3", features = ["io"]}
+futures-util = {version = "0.3", features = ["io", "sink"]}
+gag = "1.0.0"
 listenfd = "0.3"
 log = "0.4.14"
 prost = "0.8.0"

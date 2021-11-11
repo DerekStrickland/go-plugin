@@ -4,48 +4,220 @@ use crate::proto::plugin::stdio_data::Channel;
 use crate::proto::plugin::StdioData;
 use std::pin::Pin;
 
-use futures_util::stream::{Stream, TryStreamExt};
-use tokio_util::io::ReaderStream;
+use futures_util::{AsyncReadExt, SinkExt, Stream, StreamExt};
+use tokio::sync::mpsc;
+use tokio_util::codec::{FramedWrite, LinesCodec};
 use tonic::{Request, Response, Status};
 
 pub struct StdioServer {
-    // shutdown_rx: oneshot::Receiver<()>,
-// std_out: mpsc::UnboundedSender<()>,
-// std_err: mpsc::UnboundedSender<()>,
+    // This is the channel we send data on.
+    tx: mpsc::UnboundedSender<core::result::Result<StdioData, Status>>,
+    rx: tokio::sync::oneshot::Receiver<()>,
 }
 
 impl core::default::Default for StdioServer {
     fn default() -> Self {
-        StdioServer {
-            // shutdown_rx,
-            // std_out,
-            // std_err,
-        }
+        let (tx, _) =
+            tokio::sync::mpsc::unbounded_channel::<core::result::Result<StdioData, Status>>();
+        let (_, mut rx) = tokio::sync::oneshot::channel::<()>();
+        StdioServer { tx, rx }
     }
 }
 
 #[tonic::async_trait]
 impl GrpcStdio for StdioServer {
-    // type StreamStdioStream = BoxStream<'static, Result<StdioData, Status>>;
-    type StreamStdioStream =
-        Pin<Box<dyn Stream<Item = Result<StdioData, Status>> + Send + Sync + 'static>>;
+    type StreamStdioStream = Pin<
+        Box<dyn Stream<Item = core::result::Result<StdioData, Status>> + Send + Sync + 'static>,
+    >;
 
     async fn stream_stdio(
         &self,
         _: Request<Empty>,
-    ) -> Result<Response<Self::StreamStdioStream>, Status> {
-        let stream = ReaderStream::new(tokio::io::stdin())
-            .map_ok(|buf| StdioData {
-                channel: Channel::Stdout as i32,
-                data: buf.to_vec(),
-            })
-            .map_err(|err| Status::unknown(err.to_string()));
+    ) -> core::result::Result<Response<Self::StreamStdioStream>, Status> {
+        // Flyweight initialized with empty data, and default channel to stdout
+        let mut result: StdioData = StdioData {
+            channel: Channel::Stdout as i32,
+            data: "".as_bytes().to_vec(),
+        };
 
-        let stream = Box::pin(stream);
+        let mut status = Status::unknown("unset");
+        let mut stdout = tokio::io::stdout();
+        let mut stderr = tokio::io::stderr();
 
-        Ok(Response::new(stream))
+        // https://users.rust-lang.org/t/redirect-stdio-pipes-and-file-descriptors/50751/4
+        nix::unistd::dup2(tokio::io::stdout().as_raw_fd(), standard_io.as_raw_fd());
+        nix::unistd::dup2(tokio::io::stderr().as_raw_fd(), standard_io.as_raw_fd());
+
+        let mut out_tx = FramedWrite::new(stdout, LinesCodec::new_with_max_length(1024))
+            .with(|line| [line][..].into());
+
+        let mut err_tx = FramedWrite::new(stderr, LinesCodec::new_with_max_length(1024))
+            .with(|line| [line][..].into());
+
+        while let Some(out_line) = out_tx.next().await {
+            match out_line {
+                Ok(line) => {
+                    result.channel = Channel::Stdout as i32;
+                    result.data = line;
+                    self.tx.send(Ok(result.clone()));
+                    ()
+                }
+                Err(e) => {
+                    self.tx.send(Err(e));
+                    ()
+                }
+            }
+        }
+
+        while let Some(err_line) = err_tx.next().await {
+            match err_line {
+                Ok(line) => {
+                    result.channel = Channel::Stderr as i32;
+                    result.data = line;
+                    self.tx.send(Ok(result.clone()));
+                }
+                Err(e) => self.tx.send(Err(e)),
+            }
+        }
+
+        self.rx.recv().await;
+
+        if !status.message().eq("unset") {
+            Err(status.message())
+        }
+
+        result.channel = Channel::Stdout as i32;
+        result.data = "".as_bytes().to_vec();
+
+        Ok(Response::new(Box::pin(result) as Self::StreamStdioStream))
+        // let stream = ReaderStream::new(tokio::io::stdin())
+        //     .map_ok(|buf| StdioData {
+        //         channel: Channel::Stdout as i32,
+        //         data: buf.to_vec(),
+        //     })
+        //     .map_err(|err| Status::unknown(err.to_string()));
+        // Ok(Response::new(stream))
     }
 }
+
+trait StdoutStream: Stream + StreamExt {}
+
+// struct StdoutSink<W>(W);
+//
+// impl<W: AsyncWrite> Sink<I> for StdoutSink<W> {
+//     // An error will be of this type:
+//     type SinkError = std::io::Error;
+//
+//     // This is called to provide an item to the Sink. We might want to
+//     // push it to a buffer here, but to keep things simple we just forward
+//     // it on to the underlying `AsyncWrite` by calling `poll_write`. The item
+//     // is returned if nothing can be done with it yet, which is why the return
+//     // type is a little different here:
+//     fn start_send(&mut self, item: u8) -> core::result::Result<AsyncSink<u8>, Self::SinkError> {
+//         match self.0.poll_write(item: I)? {
+//             Async::NotReady => Ok(AsyncSink::NotReady(item)),
+//             Async::Ready(_) => Ok(AsyncSink::Ready),
+//         }
+//     }
+//
+//     // This is called after potentially multiple calls to `start_send`. Its goal is
+//     // to flush the data out to ensure it's been fully written.
+//     fn poll_complete(&mut self) -> core::result::Result<Async<()>, Self::SinkError> {
+//         match self.0.poll_flush()? {
+//             Async::Ready(_) => Ok(Async::Ready(())),
+//             Async::NotReady => Ok(Async::NotReady),
+//         }
+//     }
+// }
+
+// let out_fd = FileDescriptor::dup(&stdout).unwrap();
+// let err_fd = FileDescriptor::dup(&stderr).unwrap();
+// let out_handle = stdout.lock();
+// let err_handle = stderr.lock();
+// let out_fd = FileDescriptor::dup(&out_handle).unwrap();
+// let err_fd = FileDescriptor::dup(&err_handle).unwrap();
+
+// let mut out_buf: Vec<u8> = Vec::new();
+// let mut err_buf: Vec<u8> = Vec::new();
+//loop {
+
+//let err_bytes = err_tx.next().await;
+
+//     match (
+//         out_fd.buffer().read_to_end(&mut out_buf).await,
+//         err_fd.buffer().read_to_end(&mut err_buf).await,
+//     ) {
+//         (Some(mut out_buf), None) => {
+//             result.channel = Channel::Stdout as i32;
+//             result.data = out_buf;
+//         }
+//         (None, Some(mut err_buf)) => {
+//             result.channel = Channel::Stderr as i32;
+//             result.data = err_buf;
+//         }
+//         (Some(mut out_buf), Some(mut err_buf)) => {
+//             result.channel = Channel::Stdout as i32;
+//             result.data = out_buf;
+//
+//             result.channel = Channel::Stderr as i32;
+//             result.data = err_buf;
+//         }
+//         // (Err(err), None) => {
+//         //     status = Status::unknown(err.to_string());
+//         //     break;
+//         // }
+//         // (None, Err(err)) => {
+//         //     status = Status::unknown(err.to_string());
+//         //     break;
+//         // }
+//         _ => {
+//             result.channel = Channel::Stdout as i32;
+//             result.data = "".as_bytes().to_vec();
+//             break;
+//         }
+//     }
+//}
+
+// let foo = stdout.poll_flush(cx).await;
+// let out = stdout.with_subscriber();
+// let mut out.write_all().await;
+// let out_handle = tokio::spawn(async move { stdout.poll_flush() });
+//
+// let err_handle = tokio::spawn(async move {});
+//
+// out_handle.await;
+// err_handle.await;
+
+// drop(self.stdin.take());
+
+// let mut data = match (
+//     tokio::io::stdout().poll_flush(),
+//     tokio::io::stderr().poll_flush(),
+// ) {
+//     (None, None) => data,
+//     (Some(mut out), None) => {
+//         let res = out.write_all(&mut stdout);
+//         res.unwrap();
+//         StdioData {
+//             channel: Channel::Stdout as i32,
+//             data: res,
+//         }
+//     }
+//     (None, Some(mut err)) => {
+//         let res = err.write_all(&mut stderr);
+//         res.unwrap();
+//         StdioData {
+//             channel: Channel::Stderr as i32,
+//             data: res,
+//         }
+//     }
+//     // (Some(out), Some(err)) => {
+//     //     let res = read2(out.inner, &mut stdout, err.inner, &mut stderr);
+//     //     res.unwrap();
+//     //     Err(err)
+//     // },
+//     _ => data, // return default instance
+// };
 
 // struct ClientDisconnect(tokio::sync::mpsc::UnboundedSender<()>);
 //
