@@ -7,22 +7,20 @@ use std::pin::Pin;
 use futures_util::{Stream, StreamExt};
 use gag::BufferRedirect;
 use std::io::Read;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
-use tokio_stream::wrappers::UnboundedReceiverStream;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
 pub struct StdioServer {
     // This is the channel we send data on.
-    tx: tokio::sync::mpsc::UnboundedSender<_>,
-    rx: tokio::sync::mpsc::UnboundedReceiver<_>,
+// tx: tokio::sync::mpsc::UnboundedSender<_>,
+// rx: tokio::sync::mpsc::UnboundedReceiver<_>,
 }
 
 impl core::default::Default for StdioServer {
     fn default() -> Self {
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        //let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
-        StdioServer { tx, rx }
+        StdioServer {} //tx, rx }
     }
 }
 
@@ -35,6 +33,8 @@ impl GrpcStdio for StdioServer {
         &self,
         _: Request<Empty>,
     ) -> Result<Response<Self::StreamStdioStream>, Status> {
+        let (tx, rx) = tokio::sync::mpsc::channel(4);
+
         // Flyweight initialized with empty data, and default channel to stdout
         let mut response: StdioData = StdioData {
             channel: Channel::Stdout as i32,
@@ -47,24 +47,23 @@ impl GrpcStdio for StdioServer {
         // This wraps our sentinel value to test if we've hit an error status.
         // The only error status we expect at this time is a tx.send error
         // which indicates the client has disconnected.
-        let mut status = Status::unknown(sentinel);
-        let mut out_buf = BufferRedirect::stdout()?;
+        let mut status = Status::unknown(sentinel.clone());
+        let mut out_redirect = BufferRedirect::stdout()?;
         let mut out_data = Vec::with_capacity(1024);
-        let mut err_buf = BufferRedirect::stderr()?;
+        let mut err_redirect = BufferRedirect::stderr()?;
         let mut err_data = Vec::with_capacity(1024);
 
         tokio::spawn(async move {
             loop {
                 // Read the stdout buffer
-                out_buf.read(&mut out_data);
+                let size = out_redirect.read(&mut out_data).unwrap();
                 // Send the stdout bytes
                 if out_data.len() > 0 {
                     response.channel = Channel::Stdout as i32;
-                    response.data = out_data.clone();
+                    response.data = out_data[..size].to_vec();
                     out_data.clear();
-                    match self.tx.send(Ok(response.clone())) {
-                        Ok(_) => {}
-                        Err(e) => status = Status::cancelled(e.to_string()),
+                    if let Err(e) = tx.send(Ok(response.clone())).await {
+                        status = Status::cancelled(e.to_string());
                     }
                 }
 
@@ -74,15 +73,14 @@ impl GrpcStdio for StdioServer {
                 }
 
                 // Read the stderr buffer
-                err_buf.read(&mut err_data);
+                let size = err_redirect.read(&mut err_data).unwrap();
                 // send the stderr bytes
                 if err_data.len() > 0 {
                     response.channel = Channel::Stdout as i32;
-                    response.data = err_data.clone();
+                    response.data = err_data[..size].to_vec();
                     err_data.clear();
-                    match self.tx.send(Ok(response.clone())) {
-                        Ok(_) => {}
-                        Err(e) => status = Status::cancelled(e.to_string()),
+                    if let Err(e) = tx.send(Ok(response.clone())).await {
+                        status = Status::cancelled(e.to_string());
                     }
                 }
 
@@ -113,9 +111,9 @@ impl GrpcStdio for StdioServer {
         //     .write_all(err_buf.into_inner().bytes())
         //     .await;
 
-        Ok(Response::new(
-            Box::pin(UnboundedReceiverStream::new(self.rx)) as Self::StreamStdioStream,
-        ))
+        Ok(Response::new(Box::pin(
+            tokio_stream::wrappers::ReceiverStream::new(rx),
+        )))
     }
 }
 
