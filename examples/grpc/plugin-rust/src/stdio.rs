@@ -3,24 +3,25 @@ use crate::proto::plugin::grpc_stdio_server::GrpcStdio;
 use crate::proto::plugin::stdio_data::Channel;
 use crate::proto::plugin::StdioData;
 use std::pin::Pin;
+use std::time::Duration;
 
-use futures_util::{Stream, StreamExt};
+use futures_util::Stream;
 use gag::BufferRedirect;
 use std::io::Read;
+// use tonic::codegen::{Context, Poll};
+use std::thread::sleep;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
-pub struct StdioServer {
-    // This is the channel we send data on.
-// tx: tokio::sync::mpsc::UnboundedSender<_>,
-// rx: tokio::sync::mpsc::UnboundedReceiver<_>,
-}
+// type StdioResult<T> = Result<Response<T>, Status>;
+// type StdioStream = Pin<Box<dyn Stream<Item = Result<StdioData, Status>> + Send>>;
+
+#[derive(Debug)]
+pub struct StdioServer {}
 
 impl core::default::Default for StdioServer {
     fn default() -> Self {
-        //let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-
-        StdioServer {} //tx, rx }
+        StdioServer {}
     }
 }
 
@@ -33,7 +34,7 @@ impl GrpcStdio for StdioServer {
         &self,
         _: Request<Empty>,
     ) -> Result<Response<Self::StreamStdioStream>, Status> {
-        let (tx, rx) = tokio::sync::mpsc::channel(4);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<Self::StreamStdioStream>(4);
 
         // Flyweight initialized with empty data, and default channel to stdout
         let mut response: StdioData = StdioData {
@@ -52,17 +53,21 @@ impl GrpcStdio for StdioServer {
         let mut out_data = Vec::with_capacity(1024);
         let mut err_redirect = BufferRedirect::stderr()?;
         let mut err_data = Vec::with_capacity(1024);
+        let sleep_interval = Duration::from_milliseconds("10");
 
         tokio::spawn(async move {
             loop {
                 // Read the stdout buffer
                 let size = out_redirect.read(&mut out_data).unwrap();
                 // Send the stdout bytes
-                if out_data.len() > 0 {
+                if size > 0 {
                     response.channel = Channel::Stdout as i32;
                     response.data = out_data[..size].to_vec();
                     out_data.clear();
-                    if let Err(e) = tx.send(Ok(response.clone())).await {
+                    if let Err(e) = tx
+                        .send(Self::StreamStdioStream::new(Box::new(response.clone())))
+                        .await
+                    {
                         status = Status::cancelled(e.to_string());
                     }
                 }
@@ -75,11 +80,14 @@ impl GrpcStdio for StdioServer {
                 // Read the stderr buffer
                 let size = err_redirect.read(&mut err_data).unwrap();
                 // send the stderr bytes
-                if err_data.len() > 0 {
+                if size > 0 {
                     response.channel = Channel::Stdout as i32;
                     response.data = err_data[..size].to_vec();
                     err_data.clear();
-                    if let Err(e) = tx.send(Ok(response.clone())).await {
+                    if let Err(e) = tx
+                        .send(Self::StreamStdioStream::new(Box::new(response.clone())))
+                        .await
+                    {
                         status = Status::cancelled(e.to_string());
                     }
                 }
@@ -88,6 +96,8 @@ impl GrpcStdio for StdioServer {
                 if !status.message().eq(&sentinel) {
                     break;
                 }
+
+                sleep(sleep_interval)
             }
 
             if !status.message().eq(&sentinel) {
@@ -102,18 +112,6 @@ impl GrpcStdio for StdioServer {
                 response.data = "plugin shutdown".as_bytes().to_vec();
             }
         });
-
-        // TODO: Seems like we need a clean exit, but not sure how yet.
-        // Anecdotal evidence that this will cause problems. To test, from a
-        // terminal do a watch ps aux | grep kv-
-        // Spectacular weirdness that requires you to reset your terminal.
-        // Disconnect the stdio sinks.
-        // tokio::io::stdout()
-        //     .write_all(out_buf.into_inner().bytes())
-        //     .await;
-        // tokio::io::stderr()
-        //     .write_all(err_buf.into_inner().bytes())
-        //     .await;
 
         Ok(Response::new(Box::pin(
             tokio_stream::wrappers::ReceiverStream::new(rx),

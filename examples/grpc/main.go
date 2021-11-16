@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"time"
 
 	"github.com/hashicorp/go-plugin"
 	"github.com/hashicorp/go-plugin/examples/grpc/shared"
@@ -65,4 +66,6 @@ func main() {
 		fmt.Printf("Please only use 'get' or 'put', given: %q", os.Args[0])
 		os.Exit(1)
 	}
+
+	time.Sleep(150 * time.Second)
 }
