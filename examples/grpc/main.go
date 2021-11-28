@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"time"
 
 	"github.com/hashicorp/go-plugin"
 	"github.com/hashicorp/go-plugin/examples/grpc/shared"
@@ -43,16 +44,25 @@ func main() {
 	// We should have a KV store now! This feels like a normal interface
 	// implementation but is in fact over an RPC connection.
 	kv := raw.(shared.KV)
+	count := 0
 	os.Args = os.Args[1:]
 	switch os.Args[0] {
 	case "get":
-		result, err := kv.Get(os.Args[1])
-		if err != nil {
-			fmt.Println("Error:", err.Error())
-			os.Exit(1)
-		}
+		for {
+			result, err := kv.Get(os.Args[1])
+			if err != nil {
+				fmt.Println("Error:", err.Error())
+				os.Exit(1)
+			}
 
-		fmt.Println(string(result))
+			fmt.Println(string(result))
+			time.Sleep(500 * time.Millisecond)
+			count++
+
+			if count > 20 {
+				break
+			}
+		}
 
 	case "put":
 		err := kv.Put(os.Args[1], []byte(os.Args[2]))

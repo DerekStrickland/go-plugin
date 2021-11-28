@@ -2,11 +2,20 @@ use crate::proto::google::protobuf::Empty;
 use crate::proto::plugin::grpc_stdio_server::GrpcStdio;
 use crate::proto::plugin::stdio_data::Channel;
 use crate::proto::plugin::StdioData;
+use std::path::Path;
 use std::pin::Pin;
 
+extern crate notify;
+
+// use process_path::get_executable_path;
+
+use notify::{RecommendedWatcher, RecursiveMode, Watcher};
+
+use self::notify::DebouncedEvent;
 use futures_util::{Stream, StreamExt};
 use gag::BufferRedirect;
 use std::io::Read;
+use std::time::Duration;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
@@ -55,6 +64,10 @@ impl GrpcStdio for StdioServer {
 
         tokio::spawn(async move {
             loop {
+                if let Err(e) = watch() {
+                    status = Status::cancelled(e.to_string());
+                }
+
                 // Read the stdout buffer
                 let size = out_redirect.read(&mut out_data).unwrap();
                 // Send the stdout bytes
@@ -118,6 +131,34 @@ impl GrpcStdio for StdioServer {
 }
 
 trait StdoutStream: Stream + StreamExt {}
+
+fn watch() -> notify::Result<()> {
+    // let path = get_executable_path();
+
+    let stdout_path = Path::new("/proc/self/fd/1");
+
+    // Create a channel to receive the events.
+    let (tx, rx) = std::sync::mpsc::channel::<DebouncedEvent>();
+
+    // Automatically select the best implementation for your platform.
+    // You can also access each implementation directly e.g. INotifyWatcher.
+    let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_secs(2))?;
+
+    // Add a path to be watched. All files and directories at that path and
+    // below will be monitored for changes.
+    watcher.watch(stdout_path, RecursiveMode::NonRecursive)?;
+
+    // This is a simple loop, but you may want to use more complex logic here,
+    // for example to handle I/O.
+    loop {
+        match rx.recv() {
+            Ok(event) => {
+                println!("{:?}", event)
+            },
+            Err(e) => println!("watch error: {:?}", e),
+        }
+    }
+}
 
 // struct StdoutSink<W>(W);
 //

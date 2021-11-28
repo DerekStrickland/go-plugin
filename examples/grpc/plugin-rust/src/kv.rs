@@ -17,6 +17,7 @@ impl core::default::Default for KV {
 impl Kv for KV {
     async fn get(&self, request: Request<GetRequest>) -> Result<Response<GetResponse>, Status> {
         let key = request.get_ref().clone().key;
+        println!("getting key");
         if key.is_empty() {
             return Err(Status::invalid_argument("key not specified"));
         }
