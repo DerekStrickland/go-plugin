@@ -36,4 +36,9 @@ Because the Stdio Server isn't working correctly, the client can't shut down
 gracefully.
 
 
+## Research Links for Stdout/Stderr
+
+https://github.com/krustlet/krustlet/blob/main/crates/wasi-provider/src/wasi_runtime.rs
+https://github.com/krustlet/krustlet/blob/main/crates/kubelet/src/log/mod.rs
+
 
