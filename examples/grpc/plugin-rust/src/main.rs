@@ -30,7 +30,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // };
 
     let addr: SocketAddr = "0.0.0.0:5001".parse().expect("SocketAddr parse");
-
     let (mut health_reporter, health_service) = tonic_health::server::health_reporter();
     health_reporter.set_serving::<KvServer<KV>>().await;
 

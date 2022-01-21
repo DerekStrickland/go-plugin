@@ -1,35 +1,22 @@
+use std::pin::Pin;
+use std::io::{Read};
+
 use crate::proto::google::protobuf::Empty;
 use crate::proto::plugin::grpc_stdio_server::GrpcStdio;
 use crate::proto::plugin::stdio_data::Channel;
 use crate::proto::plugin::StdioData;
-use std::path::Path;
-use std::pin::Pin;
 
-extern crate notify;
-
-// use process_path::get_executable_path;
-
-use notify::{RecommendedWatcher, RecursiveMode, Watcher};
-
-use self::notify::DebouncedEvent;
-use futures_util::{Stream, StreamExt};
+use futures_util::{Stream};
 use gag::BufferRedirect;
-use std::io::Read;
-use std::time::Duration;
+use tokio::sync::mpsc;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
-pub struct StdioServer {
-    // This is the channel we send data on.
-// tx: tokio::sync::mpsc::UnboundedSender<_>,
-// rx: tokio::sync::mpsc::UnboundedReceiver<_>,
-}
+pub struct StdioServer {}
 
 impl core::default::Default for StdioServer {
     fn default() -> Self {
-        //let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-
-        StdioServer {} //tx, rx }
+        StdioServer {}
     }
 }
 
@@ -42,38 +29,58 @@ impl GrpcStdio for StdioServer {
         &self,
         _: Request<Empty>,
     ) -> Result<Response<Self::StreamStdioStream>, Status> {
-        let (tx, rx) = tokio::sync::mpsc::channel(4);
+        let (tx, rx) = mpsc::channel(4);
 
         // Flyweight initialized with empty data, and default channel to stdout
         let mut response: StdioData = StdioData {
             channel: Channel::Stdout as i32,
-            data: "".as_bytes().to_vec(),
+            data: b"intializing stdio stream".to_vec(),
         };
 
-        // This is our inverse sentinel value we'll use to ensure that we can
-        // detect an error condition has occurred.
-        let sentinel = Uuid::new_v4().to_string();
-        // This wraps our sentinel value to test if we've hit an error status.
-        // The only error status we expect at this time is a tx.send error
-        // which indicates the client has disconnected.
-        let mut status = Status::unknown(sentinel.clone());
-        let mut out_redirect = BufferRedirect::stdout()?;
-        let mut out_data = Vec::with_capacity(1024);
-        let mut err_redirect = BufferRedirect::stderr()?;
-        let mut err_data = Vec::with_capacity(1024);
+        if let Err(e) = tx.send(Ok(response.clone())).await {
+            println!("unable to send stdio data: {}", e.to_string());
+        }
 
         tokio::spawn(async move {
+            // This is our inverse sentinel value we'll use to ensure that we can
+            // detect an error condition has occurred.
+            let sentinel = Uuid::new_v4().to_string();
+            // This wraps our sentinel value to test if we've hit an error status.
+            // The only error status we expect at this time is a tx.send error
+            // which indicates the client has disconnected.
+            let mut status = Status::unknown(sentinel.clone());
+
+            let mut out_redirect = BufferRedirect::stdout().unwrap();
+            let mut out_data = Vec::with_capacity(1024);
+            let mut err_redirect = BufferRedirect::stderr().unwrap();
+            let mut err_data = Vec::with_capacity(1024);
+            let debug = true;
+
             loop {
-                if let Err(e) = watch() {
-                    status = Status::cancelled(e.to_string());
+                // TODO: Make this a configurable option.
+                // This Debug Block is useful for proving the go-plugin GRPCClient
+                // is receiving the channel data.
+                if debug {
+                    // response.data = b"stdio listener loop".to_vec();
+                    // if let Err(e) = tx.send(Ok(response.clone())).await {
+                    //     println!("unable to send stdio data: {}", e.to_string());
+                    // }
+
+                    // if count.rem_euclid(5) == 0 {
+                        println!("should send stdout foo");
+                        eprintln!("should send stderr");
+                    // }
                 }
 
-                // Read the stdout buffer
-                let size = out_redirect.read(&mut out_data).unwrap();
-                // Send the stdout bytes
+                out_redirect.read_to_end(&mut out_data).unwrap_or_else(|e| {
+                    println!("error retrieving stdout: {}", e);
+                    response.data = format!("error retrieving stdout: {}", e).as_bytes().to_vec();
+                    return 0;
+                });
+
                 if out_data.len() > 0 {
                     response.channel = Channel::Stdout as i32;
-                    response.data = out_data[..size].to_vec();
+                    response.data = out_data[..].to_vec();
                     out_data.clear();
                     if let Err(e) = tx.send(Ok(response.clone())).await {
                         status = Status::cancelled(e.to_string());
@@ -85,12 +92,16 @@ impl GrpcStdio for StdioServer {
                     break;
                 }
 
-                // Read the stderr buffer
-                let size = err_redirect.read(&mut err_data).unwrap();
+                err_redirect.read_to_end(&mut err_data).unwrap_or_else(|e| {
+                    println!("error retrieving stderr: {}", e);
+                    response.data = format!("error retrieving stderr: {}", e).as_bytes().to_vec();
+                    return 0;
+                });
+
                 // send the stderr bytes
                 if err_data.len() > 0 {
-                    response.channel = Channel::Stdout as i32;
-                    response.data = err_data[..size].to_vec();
+                    response.channel = Channel::Stderr as i32;
+                    response.data = err_data[..].to_vec();
                     err_data.clear();
                     if let Err(e) = tx.send(Ok(response.clone())).await {
                         status = Status::cancelled(e.to_string());
@@ -108,21 +119,14 @@ impl GrpcStdio for StdioServer {
                 // Ok(Response::new(Box::pin(status) as Self::StreamStdioStream))
                 response.channel = Channel::Stderr as i32;
                 response.data = status.message().as_bytes().to_vec();
-            } else {
-                // Can this ever fire? Need a shutdown broadcast receiver from main.
-                response.channel = Channel::Stdout as i32;
-                // TODO: Add a shutdown reason if detectable?
-                response.data = "plugin shutdown".as_bytes().to_vec();
-            }
-        });
 
-        // Disconnect the stdio sinks.
-        // tokio::io::stdout()
-        //     .write_all(out_buf.into_inner().bytes())
-        //     .await;
-        // tokio::io::stderr()
-        //     .write_all(err_buf.into_inner().bytes())
-        //     .await;
+                if let Err(e) = tx.send(Ok(response.clone())).await {
+                    println!("unable to send status: {} - {}", status.message(), e.to_string());
+                }
+            }
+
+            // TODO: Handle Client Drop
+        });
 
         Ok(Response::new(Box::pin(
             tokio_stream::wrappers::ReceiverStream::new(rx),
@@ -130,35 +134,137 @@ impl GrpcStdio for StdioServer {
     }
 }
 
-trait StdoutStream: Stream + StreamExt {}
 
-fn watch() -> notify::Result<()> {
-    // let path = get_executable_path();
+// if !status.message().eq(&sentinel) {
+// // // TODO: Inspect client drop vs other errors.
+// // Ok(Response::new(Box::pin(status) as Self::StreamStdioStream))
+// response.channel = Channel::Stderr as i32;
+// response.data = status.message().as_bytes().to_vec();
+// } else {
+// // Can this ever fire? Need a shutdown broadcast receiver from main.
+// response.channel = Channel::Stdout as i32;
+// // TODO: Add a shutdown reason if detectable?
+// response.data = "plugin shutdown".as_bytes().to_vec();
+// }
 
-    let stdout_path = Path::new("/proc/self/fd/1");
+// trait StdoutStream: Stream + StreamExt {}
 
-    // Create a channel to receive the events.
-    let (tx, rx) = std::sync::mpsc::channel::<DebouncedEvent>();
+// #[derive(Debug)]
+// pub struct StdoutSink<W>(mpsc::Sender<Option<Vec<u8>>>);
+//
+// impl <W: AsyncWrite> AsyncWrite for StdoutSink<W> {
+//     type Item = Vec<u8>;
+//     type Error = Error;
+//
+//     fn start_send(&mut self, item: Vec<u8>) -> Result<AsyncSink<Vec<u8>>, Self::Error> {
+//         match self.0.start_send(Some(item)) {
+//             Err(_) => Err(ErrorKind::Other.into()),
+//             Ok(AsyncSink::Ready) => Ok(AsyncSink::Ready),
+//             Ok(AsyncSink::NotReady(o)) => Ok(AsyncSink::NotReady(o.unwrap())),
+//         }
+//     }
+//
+//     fn poll_complete(&mut self) -> Result<Async<()>, Self::Error> {
+//         match self.0.poll_flush()? {
+//             Err(_) => Err(ErrorKind::Other.into()),
+//             Ok(x) => Ok(x),
+//         }
+//     }
+//
+//     fn poll_write(self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<std::io::Result<usize>> {
+//         todo!()
+//     }
+//
+//     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+//         todo!()
+//     }
+//
+//     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+//         todo!()
+//     }
+// }
 
-    // Automatically select the best implementation for your platform.
-    // You can also access each implementation directly e.g. INotifyWatcher.
-    let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_secs(2))?;
+// let stdout_sink = drain()
+// .with(|out_data: Vec<u8>| async move {
+// response.channel = Channel::Stdout as i32;
+// response.data = out_data.clone();
+// if let Err(e) = tx.send(Ok(response.clone())).await {
+// status = Status::cancelled(e.to_string());
+// }
+// });
 
-    // Add a path to be watched. All files and directories at that path and
-    // below will be monitored for changes.
-    watcher.watch(stdout_path, RecursiveMode::NonRecursive)?;
 
-    // This is a simple loop, but you may want to use more complex logic here,
-    // for example to handle I/O.
-    loop {
-        match rx.recv() {
-            Ok(event) => {
-                println!("{:?}", event)
-            },
-            Err(e) => println!("watch error: {:?}", e),
-        }
-    }
-}
+// if let Err(e) = watch() {
+//     status = Status::cancelled(e.to_string());
+// }
+
+// let out_size = std::io::stdout().as_filelike_view::<File>().read_vectored(&mut out_data).unwrap_or_else(|e| {
+//     println!("{}", e);
+//     return 0
+// });
+// // Read the stdout buffer
+// // let size = out_redirect.read(&mut out_data).unwrap();
+// // Send the stdout bytes
+// if out_size > 0 {
+//     response.channel = Channel::Stdout as i32;
+//     response.data = out_data[out_size].to_vec();
+//     out_data.clear();
+//     if let Err(e) = tx.send(Ok(response.clone())).await {
+//         status = Status::cancelled(e.to_string());
+//     }
+// }
+//
+// let out_take = std::io::stdout().take(1024).collect::<Vec<u8>>().await;
+// if out_take.len() > 0 {
+//     response.channel = Channel::Stdout as i32;
+//     response.data = out_take;
+//     // out_data.clear();
+//     if let Err(e) = tx.send(Ok(response.clone())).await {
+//         status = Status::cancelled(e.to_string());
+//     }
+// }
+
+// let out_read = std::io::stdout().read_to_end(&mut out_data).unwrap_or_else(|e| {
+//     println!("{}", e);
+//     return 0
+// });
+// if out_read.unwrap() > 0 {
+//     response.channel = Channel::Stdout as i32;
+//     response.data = out_data.clone();
+//     if let Err(e) = tx.send(Ok(response.clone())).await {
+//         status = Status::cancelled(e.to_string());
+//     }
+// }
+//
+// std::io::stdout().read(&mut out_data).map(Ok).forward(stdout_sink).await;
+
+// fn watch() -> notify::Result<()> {
+//     // let path = get_executable_path();
+//
+//     let stdout_path = Path::new("/proc/self/fd/1");
+//
+//     // Create a channel to receive the events.
+//     let (tx, rx) = std::sync::mpsc::channel::<DebouncedEvent>();
+//
+//     // Automatically select the best implementation for your platform.
+//     // You can also access each implementation directly e.g. INotifyWatcher.
+//     let mut watcher: RecommendedWatcher = Watcher::new(tx, Duration::from_secs(2))?;
+//
+//     // Add a path to be watched. All files and directories at that path and
+//     // below will be monitored for changes.
+//     watcher.watch(stdout_path, RecursiveMode::NonRecursive)?;
+//
+//     // This is a simple loop, but you may want to use more complex logic here,
+//     // for example to handle I/O.
+//     loop {
+//         match rx.recv() {
+//             Ok(event) => {
+//                 println!("{:?}", event)
+//             },
+//             Err(e) => println!("watch error: {:?}", e),
+//         }
+//     }
+// }
 
 // struct StdoutSink<W>(W);
 //
