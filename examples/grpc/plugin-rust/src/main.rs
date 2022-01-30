@@ -1,16 +1,16 @@
-// use std::fs;
-// use std::io::Write;
-use futures_util::FutureExt;
 use std::net::SocketAddr;
-// use tokio::io::AsyncWriteExt;
-use tonic::transport::Server;
-use tonic_health::server::HealthReporter;
 
 use crate::proto::plugin::grpc_stdio_server::GrpcStdioServer;
 use crate::proto::proto::kv_server::KvServer;
-use kv::KV;
-use stdio::StdioServer;
+
+use futures_util::FutureExt;
+use gag::BufferRedirect;
 use tokio::signal::unix::{signal, SignalKind};
+use tonic::transport::Server;
+use tonic_health::server::HealthReporter;
+
+use kv::KV;
+use stdio::{StdioRedirect, StdioServer};
 
 mod kv;
 mod proto;
@@ -35,8 +35,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tokio::spawn(driver_service_status(health_reporter.clone()));
 
+    let stdout_redirect = BufferRedirect::stdout().unwrap();
+    let stderr_redirect = BufferRedirect::stderr().unwrap();
+    let redirect = StdioRedirect::new(stdout_redirect, stderr_redirect);
+
     let kv_server = KV::default();
-    let stdio_server = StdioServer::default();
+    let stdio_server = StdioServer::new(redirect);
 
     Server::builder()
         .add_service(health_service)
