@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"time"
 )
 
 // grpcStdioBuffer is the buffer size we try to fill when sending a chunk of
@@ -97,17 +98,29 @@ func newGRPCStdioClient(
 ) (*grpcStdioClient, error) {
 	client := plugin.NewGRPCStdioClient(conn)
 
-	// Connect immediately to the endpoint
-	stdioClient, err := client.StreamStdio(ctx, &empty.Empty{})
+	count := 0
+	var stdioClient plugin.GRPCStdio_StreamStdioClient
+	var err error
+	for {
+		// Connect immediately to the endpoint
+		stdioClient, err = client.StreamStdio(ctx, &empty.Empty{})
 
-	// If we get an Unavailable or Unimplemented error, this means that the plugin isn't
-	// updated and linking to the latest version of go-plugin that supports
-	// this. We fall back to the previous behavior of just not syncing anything.
-	if status.Code(err) == codes.Unavailable || status.Code(err) == codes.Unimplemented {
-		log.Warn("stdio service not available, stdout/stderr syncing unavailable")
-		stdioClient = nil
-		err = nil
+		// If we get an Unavailable or Unimplemented error, this means that the plugin isn't
+		// updated and linking to the latest version of go-plugin that supports
+		// this. We fall back to the previous behavior of just not syncing anything.
+		if status.Code(err) == codes.Unavailable || status.Code(err) == codes.Unimplemented {
+			log.Warn("stdio service not available, stdout/stderr syncing unavailable")
+			stdioClient = nil
+			err = nil
+		}
+		count = count + 1
+		if count > 2 {
+			break
+		}
+		timer1 := time.NewTimer(time.Second * 1)
+		<-timer1.C
 	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -158,6 +171,7 @@ func (c *grpcStdioClient) Run(stdout, stderr io.Writer) {
 			continue
 		}
 
+		c.log.Info("received data", "channel", data.Channel.String(), "val", string(data.Data))
 		// Write! In the event of an error we just continue.
 		if c.log.IsTrace() {
 			c.log.Trace("received data", "channel", data.Channel.String(), "len", len(data.Data))

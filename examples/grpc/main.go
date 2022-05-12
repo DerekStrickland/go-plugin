@@ -23,6 +23,8 @@ func main() {
 		Plugins:         shared.PluginMap,
 		SyncStderr:      os.Stderr,
 		SyncStdout:      os.Stdout,
+		MinPort: 5001,
+		MaxPort: 5001,
 		Cmd:             exec.Command("sh", "-c", os.Getenv("KV_PLUGIN")),
 		AllowedProtocols: []plugin.Protocol{
 			plugin.ProtocolNetRPC, plugin.ProtocolGRPC},
@@ -57,7 +59,7 @@ func main() {
 				os.Exit(1)
 			}
 
-			fmt.Println(string(result))
+			fmt.Printf("result: %s\n", string(result))
 			time.Sleep(500 * time.Millisecond)
 			count++
 

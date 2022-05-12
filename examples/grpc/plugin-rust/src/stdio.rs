@@ -32,7 +32,7 @@ impl GrpcStdio for StdioServer {
         &self,
         _: Request<Empty>,
     ) -> Result<Response<Self::StreamStdioStream>, Status> {
-        let (tx, rx) = mpsc::channel(4);
+        let (tx, rx) = mpsc::channel(100);
 
         // Flyweight initialized with empty data, and default channel to stdout
         let mut response: StdioData = StdioData {

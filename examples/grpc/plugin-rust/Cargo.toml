@@ -36,3 +36,13 @@ prost = { git = "https://github.com/tokio-rs/prost" }
 prost-build = { path = "../../../../prost/prost-build" }
 tonic-build = { path = '../../../../tonic/tonic-build' }
 
+# server binary
+[[bin]]
+name = "kv-rust-plugin"
+path = "src/server.rs"
+
+# client binary
+[[bin]]
+name = "kv-rust-client"
+path = "src/client.rs"
+

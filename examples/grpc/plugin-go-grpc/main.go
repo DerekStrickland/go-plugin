@@ -1,11 +1,11 @@
 package main
 
 import (
-	"fmt"
 	"io/ioutil"
 
 	"github.com/hashicorp/go-plugin"
 	"github.com/hashicorp/go-plugin/examples/grpc/shared"
+	"fmt"
 )
 
 // Here is a real implementation of KV that writes to a local file with
@@ -18,6 +18,7 @@ func (KV) Put(key string, value []byte) error {
 }
 
 func (KV) Get(key string) ([]byte, error) {
+	fmt.Printf("getting values for key %s\n", key)
 	return ioutil.ReadFile("kv_" + key)
 }
 
