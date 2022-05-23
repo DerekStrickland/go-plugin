@@ -1,23 +1,28 @@
-#[derive(serde::Deserialize, Clone, PartialEq, ::prost::Message)]
+#[derive(serde::Deserialize)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetRequest {
-    #[prost(string, tag = "1")]
+    #[prost(string, tag="1")]
     pub key: ::prost::alloc::string::String,
 }
-#[derive(serde::Deserialize, Clone, PartialEq, ::prost::Message)]
+#[derive(serde::Deserialize)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct GetResponse {
-    #[prost(bytes = "vec", tag = "1")]
+    #[prost(bytes="vec", tag="1")]
     pub value: ::prost::alloc::vec::Vec<u8>,
 }
-#[derive(serde::Deserialize, Clone, PartialEq, ::prost::Message)]
+#[derive(serde::Deserialize)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PutRequest {
-    #[prost(string, tag = "1")]
+    #[prost(string, tag="1")]
     pub key: ::prost::alloc::string::String,
-    #[prost(bytes = "vec", tag = "2")]
+    #[prost(bytes="vec", tag="2")]
     pub value: ::prost::alloc::vec::Vec<u8>,
 }
-#[derive(serde::Deserialize, Clone, PartialEq, ::prost::Message)]
-pub struct Empty {}
-#[doc = r" Generated client implementations."]
+#[derive(serde::Deserialize)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Empty {
+}
+/// Generated client implementations.
 pub mod kv_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
@@ -26,7 +31,7 @@ pub mod kv_client {
         inner: tonic::client::Grpc<T>,
     }
     impl KvClient<tonic::transport::Channel> {
-        #[doc = r" Attempt to create a new client by connecting to a given endpoint."]
+        /// Attempt to create a new client by connecting to a given endpoint.
         pub async fn connect<D>(dst: D) -> Result<Self, tonic::transport::Error>
         where
             D: std::convert::TryInto<tonic::transport::Endpoint>,
@@ -39,37 +44,44 @@ pub mod kv_client {
     impl<T> KvClient<T>
     where
         T: tonic::client::GrpcService<tonic::body::BoxBody>,
-        T::ResponseBody: Body + Send + Sync + 'static,
         T::Error: Into<StdError>,
+        T::ResponseBody: Body<Data = Bytes> + Send + 'static,
         <T::ResponseBody as Body>::Error: Into<StdError> + Send,
     {
         pub fn new(inner: T) -> Self {
             let inner = tonic::client::Grpc::new(inner);
             Self { inner }
         }
-        pub fn with_interceptor<F>(inner: T, interceptor: F) -> KvClient<InterceptedService<T, F>>
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> KvClient<InterceptedService<T, F>>
         where
             F: tonic::service::Interceptor,
+            T::ResponseBody: Default,
             T: tonic::codegen::Service<
                 http::Request<tonic::body::BoxBody>,
                 Response = http::Response<
                     <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
                 >,
             >,
-            <T as tonic::codegen::Service<http::Request<tonic::body::BoxBody>>>::Error:
-                Into<StdError> + Send + Sync,
+            <T as tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+            >>::Error: Into<StdError> + Send + Sync,
         {
             KvClient::new(InterceptedService::new(inner, interceptor))
         }
-        #[doc = r" Compress requests with `gzip`."]
-        #[doc = r""]
-        #[doc = r" This requires the server to support it otherwise it might respond with an"]
-        #[doc = r" error."]
+        /// Compress requests with `gzip`.
+        ///
+        /// This requires the server to support it otherwise it might respond with an
+        /// error.
+        #[must_use]
         pub fn send_gzip(mut self) -> Self {
             self.inner = self.inner.send_gzip();
             self
         }
-        #[doc = r" Enable decompressing responses with `gzip`."]
+        /// Enable decompressing responses with `gzip`.
+        #[must_use]
         pub fn accept_gzip(mut self) -> Self {
             self.inner = self.inner.accept_gzip();
             self
@@ -78,12 +90,15 @@ pub mod kv_client {
             &mut self,
             request: impl tonic::IntoRequest<super::GetRequest>,
         ) -> Result<tonic::Response<super::GetResponse>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/proto.KV/Get");
             self.inner.unary(request.into_request(), path, codec).await
@@ -92,23 +107,26 @@ pub mod kv_client {
             &mut self,
             request: impl tonic::IntoRequest<super::PutRequest>,
         ) -> Result<tonic::Response<super::Empty>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/proto.KV/Put");
             self.inner.unary(request.into_request(), path, codec).await
         }
     }
 }
-#[doc = r" Generated server implementations."]
+/// Generated server implementations.
 pub mod kv_server {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
-    #[doc = "Generated trait containing gRPC methods that should be implemented for use with KvServer."]
+    ///Generated trait containing gRPC methods that should be implemented for use with KvServer.
     #[async_trait]
     pub trait Kv: Send + Sync + 'static {
         async fn get(
@@ -129,7 +147,9 @@ pub mod kv_server {
     struct _Inner<T>(Arc<T>);
     impl<T: Kv> KvServer<T> {
         pub fn new(inner: T) -> Self {
-            let inner = Arc::new(inner);
+            Self::from_arc(Arc::new(inner))
+        }
+        pub fn from_arc(inner: Arc<T>) -> Self {
             let inner = _Inner(inner);
             Self {
                 inner,
@@ -137,7 +157,10 @@ pub mod kv_server {
                 send_compression_encodings: Default::default(),
             }
         }
-        pub fn with_interceptor<F>(inner: T, interceptor: F) -> InterceptedService<Self, F>
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> InterceptedService<Self, F>
         where
             F: tonic::service::Interceptor,
         {
@@ -147,13 +170,16 @@ pub mod kv_server {
     impl<T, B> tonic::codegen::Service<http::Request<B>> for KvServer<T>
     where
         T: Kv,
-        B: Body + Send + Sync + 'static,
+        B: Body + Send + 'static,
         B::Error: Into<StdError> + Send + 'static,
     {
         type Response = http::Response<tonic::body::BoxBody>;
-        type Error = Never;
+        type Error = std::convert::Infallible;
         type Future = BoxFuture<Self::Response, Self::Error>;
-        fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        fn poll_ready(
+            &mut self,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Result<(), Self::Error>> {
             Poll::Ready(Ok(()))
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
@@ -162,9 +188,13 @@ pub mod kv_server {
                 "/proto.KV/Get" => {
                     #[allow(non_camel_case_types)]
                     struct GetSvc<T: Kv>(pub Arc<T>);
-                    impl<T: Kv> tonic::server::UnaryService<super::GetRequest> for GetSvc<T> {
+                    impl<T: Kv> tonic::server::UnaryService<super::GetRequest>
+                    for GetSvc<T> {
                         type Response = super::GetResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::GetRequest>,
@@ -181,10 +211,11 @@ pub mod kv_server {
                         let inner = inner.0;
                         let method = GetSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec).apply_compression_config(
-                            accept_compression_encodings,
-                            send_compression_encodings,
-                        );
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
                     };
@@ -193,9 +224,13 @@ pub mod kv_server {
                 "/proto.KV/Put" => {
                     #[allow(non_camel_case_types)]
                     struct PutSvc<T: Kv>(pub Arc<T>);
-                    impl<T: Kv> tonic::server::UnaryService<super::PutRequest> for PutSvc<T> {
+                    impl<T: Kv> tonic::server::UnaryService<super::PutRequest>
+                    for PutSvc<T> {
                         type Response = super::Empty;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::PutRequest>,
@@ -212,23 +247,28 @@ pub mod kv_server {
                         let inner = inner.0;
                         let method = PutSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec).apply_compression_config(
-                            accept_compression_encodings,
-                            send_compression_encodings,
-                        );
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            );
                         let res = grpc.unary(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)
                 }
-                _ => Box::pin(async move {
-                    Ok(http::Response::builder()
-                        .status(200)
-                        .header("grpc-status", "12")
-                        .header("content-type", "application/grpc")
-                        .body(empty_body())
-                        .unwrap())
-                }),
+                _ => {
+                    Box::pin(async move {
+                        Ok(
+                            http::Response::builder()
+                                .status(200)
+                                .header("grpc-status", "12")
+                                .header("content-type", "application/grpc")
+                                .body(empty_body())
+                                .unwrap(),
+                        )
+                    })
+                }
             }
         }
     }

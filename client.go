@@ -22,9 +22,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"google.golang.org/grpc"
-
 	"github.com/hashicorp/go-hclog"
+	"google.golang.org/grpc"
 )
 
 // If this is 1, then we've called CleanupClients. This can be used

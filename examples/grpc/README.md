@@ -60,6 +60,15 @@ This plugin is written in Rust.
 # This builds the main CLI
 $ go build -o kv
 
+# This allows us to instrument and debug our plugin using tokio-console.
+# Not required, but helpful. 
+$ cargo install --locked tokio-console
+
+# To build without tokio console you will need to remove or comment out ths 
+# line in main.rs 
+#   console_subscriber::init();
+$ export RUSTFLAGS="--cfg tokio_unstable"
+
 # This builds the plugin written in Rust
 $ cargo build --manifest-path=plugin-rust/Cargo.toml --release
 

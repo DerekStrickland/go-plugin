@@ -1,12 +1,13 @@
 // use std::fs;
 // use std::io::Write;
-use std::net::SocketAddr;
 use futures_util::FutureExt;
+use std::net::SocketAddr;
 use tonic::transport::Server;
 use tonic_health::server::HealthReporter;
 
 use crate::proto::plugin::grpc_stdio_server::GrpcStdioServer;
 use crate::proto::proto::kv_server::KvServer;
+// use console_subscriber;
 use kv::KV;
 use stdio::StdioServer;
 use tokio::signal::unix::{signal, SignalKind};
@@ -17,6 +18,7 @@ mod stdio;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // console_subscriber::init();
     // go-plugin requires this to be written to satisfy the handshake protocol.
     // https://github.com/hashicorp/go-plugin/blob/master/docs/guide-plugin-write-non-go.md#4-output-handshake-information
     println!("1|1|tcp|127.0.0.1:5001|grpc");

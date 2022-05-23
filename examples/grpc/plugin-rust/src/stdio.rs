@@ -10,6 +10,8 @@ use gag::BufferRedirect;
 use std::io::Read;
 // use tonic::codegen::{Context, Poll};
 use std::thread::sleep;
+use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
@@ -34,7 +36,7 @@ impl GrpcStdio for StdioServer {
         &self,
         _: Request<Empty>,
     ) -> Result<Response<Self::StreamStdioStream>, Status> {
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<Self::StreamStdioStream>(4);
+        let (tx, rx) = mpsc::channel(128);
 
         // Flyweight initialized with empty data, and default channel to stdout
         let mut response: StdioData = StdioData {
@@ -48,12 +50,12 @@ impl GrpcStdio for StdioServer {
         // This wraps our sentinel value to test if we've hit an error status.
         // The only error status we expect at this time is a tx.send error
         // which indicates the client has disconnected.
-        let mut status = Status::unknown(sentinel.clone());
+        let status = Status::unknown(sentinel.clone());
         let mut out_redirect = BufferRedirect::stdout()?;
         let mut out_data = Vec::with_capacity(1024);
         let mut err_redirect = BufferRedirect::stderr()?;
         let mut err_data = Vec::with_capacity(1024);
-        let sleep_interval = Duration::from_milliseconds("10");
+        let sleep_interval = Duration::from_millis(10);
 
         tokio::spawn(async move {
             loop {
@@ -64,11 +66,20 @@ impl GrpcStdio for StdioServer {
                     response.channel = Channel::Stdout as i32;
                     response.data = out_data[..size].to_vec();
                     out_data.clear();
-                    if let Err(e) = tx
-                        .send(Self::StreamStdioStream::new(Box::new(response.clone())))
-                        .await
-                    {
-                        status = Status::cancelled(e.to_string());
+                    // if let Err(e) = tx
+                    //     .send(Self::StreamStdioStream::new(Box::new(response.clone())))
+                    //     .await
+                    // {
+                    //     status = Status::cancelled(e.to_string());
+                    // }
+                    match tx.send(Result::<_, Status>::Ok(response.clone())).await {
+                        Ok(_) => {
+                            // item (server response) was queued to be send to client
+                        }
+                        Err(_item) => {
+                            // output_stream was build from rx and both are dropped
+                            break;
+                        }
                     }
                 }
 
@@ -84,11 +95,20 @@ impl GrpcStdio for StdioServer {
                     response.channel = Channel::Stdout as i32;
                     response.data = err_data[..size].to_vec();
                     err_data.clear();
-                    if let Err(e) = tx
-                        .send(Self::StreamStdioStream::new(Box::new(response.clone())))
-                        .await
-                    {
-                        status = Status::cancelled(e.to_string());
+                    // if let Err(e) = tx
+                    //     .send(Self::StreamStdioStream::new(Box::new(response.clone())))
+                    //     .await
+                    // {
+                    //     status = Status::cancelled(e.to_string());
+                    // }
+                    match tx.send(Result::<_, Status>::Ok(response.clone())).await {
+                        Ok(_) => {
+                            // item (server response) was queued to be send to client
+                        }
+                        Err(_item) => {
+                            // output_stream was build from rx and both are dropped
+                            break;
+                        }
                     }
                 }
 
@@ -100,21 +120,23 @@ impl GrpcStdio for StdioServer {
                 sleep(sleep_interval)
             }
 
-            if !status.message().eq(&sentinel) {
-                // // TODO: Inspect client drop vs other errors.
-                // Ok(Response::new(Box::pin(status) as Self::StreamStdioStream))
-                response.channel = Channel::Stderr as i32;
-                response.data = status.message().as_bytes().to_vec();
-            } else {
-                // Can this ever fire? Need a shutdown broadcast receiver from main.
-                response.channel = Channel::Stdout as i32;
-                // TODO: Add a shutdown reason if detectable?
-                response.data = "plugin shutdown".as_bytes().to_vec();
-            }
+            // if !status.message().eq(&sentinel) {
+            //     // // TODO: Inspect client drop vs other errors.
+            //     // Ok(Response::new(Box::pin(status) as Self::StreamStdioStream))
+            //     response.channel = Channel::Stderr as i32;
+            //     response.data = status.message().as_bytes().to_vec();
+            // } else {
+            //     // Can this ever fire? Need a shutdown broadcast receiver from main.
+            //     response.channel = Channel::Stdout as i32;
+            //     // TODO: Add a shutdown reason if detectable?
+            //     response.data = "plugin shutdown".as_bytes().to_vec();
+            // }
+            println!("\tclient disconnected");
         });
 
-        Ok(Response::new(Box::pin(
-            tokio_stream::wrappers::ReceiverStream::new(rx),
-        )))
+        let output_stream = ReceiverStream::new(rx);
+        Ok(Response::new(
+            Box::pin(output_stream) as Self::StreamStdioStream
+        ))
     }
 }

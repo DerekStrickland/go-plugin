@@ -4,7 +4,9 @@ use tonic::{Request, Response, Status};
 
 use crate::proto::proto::kv_server::Kv;
 use crate::proto::proto::{Empty, GetRequest, GetResponse, PutRequest};
-use futures_util::AsyncWriteExt;
+// use futures_util::AsyncWriteExt;
+use tokio::io;
+use tokio::io::AsyncWriteExt;
 
 pub struct KV {}
 
@@ -18,7 +20,7 @@ impl core::default::Default for KV {
 impl Kv for KV {
     async fn get(&self, request: Request<GetRequest>) -> Result<Response<GetResponse>, Status> {
         let key = request.get_ref().clone().key;
-        tokio::io::stdout().write_all("getting key".as_bytes());
+        io::stdout().write_all(b"getting key").await?;
         if key.is_empty() {
             return Err(Status::invalid_argument("key not specified"));
         }

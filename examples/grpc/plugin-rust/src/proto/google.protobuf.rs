@@ -7,5 +7,7 @@
 ///     }
 ///
 /// The JSON representation for `Empty` is empty JSON object `{}`.
-#[derive(serde::Deserialize, Clone, PartialEq, ::prost::Message)]
-pub struct Empty {}
+#[derive(serde::Deserialize)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Empty {
+}

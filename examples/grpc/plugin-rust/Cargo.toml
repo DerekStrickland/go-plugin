@@ -14,30 +14,31 @@ futures-util = {version = "0.3", features = ["io", "sink"]}
 gag = "1.0.0"
 listenfd = "0.3"
 log = "0.4.14"
-prost = "0.8.0"
-prost-types = "0.8.0"
+prost = "0.10.0"
+prost-types = "0.10.0"
 rmp-serde = "0.15.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tokio = { version = "1.11.0", features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time"] }
-tokio-stream = { version = "0.1", features = ["net"] }
+tokio = { version = "1.18.2", features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time"] }
+console-subscriber = "0.1.5"
+tokio-stream = { version = "0.1.8", features = ["net"] }
 tokio-test = "0.4.2"
 tokio-util = { version = "0.6.9", features = ["io"]}
-tonic = "0.5.2"
-tonic-health = "0.4.1"
+tonic = "0.7.2"
+tonic-health = "0.6.0"
 uuid = { version = "0.8.2", features = ["v4"]}
 
 [build-dependencies]
-prost = "0.8.0"
-prost-build = "0.8.0"
-protoc-rust = "2.0"
-tonic-build = "0.5.2"
-prost-types = "0.8.0"
+prost = "0.10.0"
+prost-build = "0.10.0"
+protoc-rust = "2"
+tonic-build = "0.7.2"
+prost-types = "0.10.0"
 
 [patch.crates-io]
-# tonic-build = { git = 'https://github.com/hyperium/tonic' }
-prost = { git = "https://github.com/tokio-rs/prost" }
+#tonic-build = { git = 'https://github.com/hyperium/tonic' }
+#prost = { git = "https://github.com/tokio-rs/prost" }
 #prost-build = { git = "https://github.com/tokio-rs/prost" }
-prost-build = { path = "../../../../prost/prost-build" }
-tonic-build = { path = '../../../../tonic/tonic-build' }
+#prost-build = { path = "../../../../prost/prost-build" }
+#tonic-build = { path = '../../../../tonic/tonic-build' }
 
