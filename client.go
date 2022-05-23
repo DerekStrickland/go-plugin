@@ -663,7 +663,7 @@ func (c *Client) Start() (addr net.Addr, err error) {
 	}()
 
 	// Make sure after we exit we read the lines from stdout forever
-	// so that they don't block since it is a pipe.
+	// so they don't block since it is a pipe.
 	// The scanner goroutine above will close this, but track it with a wait
 	// group for completeness.
 	c.clientWaitGroup.Add(1)
