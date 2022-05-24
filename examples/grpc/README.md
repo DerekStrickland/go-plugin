@@ -55,22 +55,24 @@ $ export KV_PLUGIN="python plugin-python/plugin.py"
 
 This plugin is written in Rust.
 
+```shell
+cargo build --manifest-path=plugin-rust/Cargo.toml --release
+```
+
+This tells the KV binary to use the "kv-rust-grpc" binary
 
 ```shell
-# This builds the main CLI
-$ go build -o kv
+export KV_PLUGIN=./plugin-rust/target/release/kv-rust-grpc
+```
 
-# This builds the plugin written in Rust
-$ cargo build --manifest-path=plugin-rust/Cargo.toml --release
+Read and write
 
-# This tells the KV binary to use the "kv-rust-grpc" binary
-$ export KV_PLUGIN=./plugin-rust/target/release/kv-rust-grpc
+```shell
+./kv put foo bar
+```
 
-# Read and write
-$ ./kv put foo bar
-
-$ ./kv get foo
-bar
+```shell
+./kv get foo
 ```
 
 ## Updating the Protocol
@@ -90,3 +92,7 @@ For Python:
 ```sh
 $ python -m grpc_tools.protoc -I ./proto/ --python_out=./plugin-python/ --grpc_python_out=./plugin-python/ ./proto/kv.proto
 ```
+
+For Rust:
+
+Protos are synchronized on every build by code in the `build.rs` file.
