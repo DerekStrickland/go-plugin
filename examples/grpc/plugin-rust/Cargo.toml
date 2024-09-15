@@ -1,0 +1,29 @@
+[package]
+name = "kv-rust-grpc"
+version = "0.1.0"
+authors = ["DerekStrickland <1111455+DerekStrickland@users.noreply.github.com>"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-stream = "0.2"
+futures-core = "0.3"
+futures-util = {version = "0.3", features = ["io", "sink"]}
+gag = "1.0.0"
+log = "0.4.14"
+prost = "0.10.0"
+prost-types = "0.10.0"
+serde = { version = "1.0", features = ["derive"] }
+tokio = { version = "1.18.2", features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time"] }
+tokio-stream = { version = "0.1.8", features = ["net"] }
+tokio-util = { version = "0.6.9", features = ["io"]}
+tonic = "0.7.2"
+tonic-health = "0.6.0"
+uuid = { version = "0.8.2", features = ["v4"]}
+
+[build-dependencies]
+prost = "0.10.0"
+prost-build = "0.10.0"
+tonic-build = "0.7.2"
+prost-types = "0.10.0"

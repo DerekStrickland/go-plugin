@@ -9,7 +9,6 @@ $ go build -o kv
 
 # This builds the plugin written in Go
 $ go build -o kv-go-grpc ./plugin-go-grpc
-
 # This tells the KV binary to use the "kv-go-grpc" binary
 $ export KV_PLUGIN="./kv-go-grpc"
 
@@ -52,6 +51,30 @@ This plugin is written in Python:
 $ export KV_PLUGIN="python plugin-python/plugin.py"
 ```
 
+### Plugin: plugin-rust
+
+This plugin is written in Rust.
+
+```shell
+cargo build --manifest-path=plugin-rust/Cargo.toml --release
+```
+
+This tells the KV binary to use the "kv-rust-grpc" binary
+
+```shell
+export KV_PLUGIN=./plugin-rust/target/release/kv-rust-grpc
+```
+
+Read and write
+
+```shell
+./kv put foo bar
+```
+
+```shell
+./kv get foo
+```
+
 ## Updating the Protocol
 
 If you update the protocol buffers file, you can regenerate the file
@@ -69,3 +92,7 @@ For Python:
 ```sh
 $ python -m grpc_tools.protoc -I ./proto/ --python_out=./plugin-python/ --grpc_python_out=./plugin-python/ ./proto/kv.proto
 ```
+
+For Rust:
+
+Protos are synchronized on every build by code in the `build.rs` file.

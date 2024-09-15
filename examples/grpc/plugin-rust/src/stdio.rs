@@ -1,0 +1,115 @@
+use crate::proto::google::protobuf::Empty;
+use crate::proto::plugin::grpc_stdio_server::GrpcStdio;
+use crate::proto::plugin::stdio_data::Channel;
+use crate::proto::plugin::StdioData;
+use std::pin::Pin;
+use std::time::Duration;
+
+use futures_util::Stream;
+use gag::BufferRedirect;
+use std::io::Read;
+use std::thread::sleep;
+use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
+use tonic::{Request, Response, Status};
+use uuid::Uuid;
+
+#[derive(Debug)]
+pub struct StdioServer {}
+
+impl core::default::Default for StdioServer {
+    fn default() -> Self {
+        StdioServer {}
+    }
+}
+
+#[tonic::async_trait]
+impl GrpcStdio for StdioServer {
+    type StreamStdioStream =
+        Pin<Box<dyn Stream<Item = Result<StdioData, Status>> + Send + Sync + 'static>>;
+
+    async fn stream_stdio(
+        &self,
+        _: Request<Empty>,
+    ) -> Result<Response<Self::StreamStdioStream>, Status> {
+        let (tx, rx) = mpsc::channel(128);
+
+        // Flyweight initialized with empty data, and default channel to stdout
+        let mut response: StdioData = StdioData {
+            channel: Channel::Stdout as i32,
+            data: "".as_bytes().to_vec(),
+        };
+
+        // This is our inverse sentinel value we'll use to ensure that we can
+        // detect an error condition has occurred.
+        let sentinel = Uuid::new_v4().to_string();
+        // This wraps our sentinel value to test if we've hit an error status.
+        // The only error status we expect at this time is a tx.send error
+        // which indicates the client has disconnected.
+        let status = Status::unknown(sentinel.clone());
+        let mut out_redirect = BufferRedirect::stdout()?;
+        let mut out_data = Vec::with_capacity(1024);
+        let mut err_redirect = BufferRedirect::stderr()?;
+        let mut err_data = Vec::with_capacity(1024);
+        let sleep_interval = Duration::from_millis(10);
+
+        tokio::spawn(async move {
+            loop {
+                // Read the stdout buffer
+                let size = out_redirect.read(&mut out_data).unwrap();
+                // Send the stdout bytes
+                if size > 0 {
+                    response.channel = Channel::Stdout as i32;
+                    response.data = out_data[..size].to_vec();
+                    out_data.clear();
+                    match tx.send(Result::<_, Status>::Ok(response.clone())).await {
+                        Ok(_) => {
+                            // item (server response) was queued to be send to client
+                        }
+                        Err(_item) => {
+                            // output_stream was built from rx and both are dropped
+                            break;
+                        }
+                    }
+                }
+
+                // Break on error.
+                if !status.message().eq(&sentinel) {
+                    break;
+                }
+
+                // Read the stderr buffer
+                let size = err_redirect.read(&mut err_data).unwrap();
+                // send the stderr bytes
+                if size > 0 {
+                    response.channel = Channel::Stdout as i32;
+                    response.data = err_data[..size].to_vec();
+                    err_data.clear();
+                    match tx.send(Result::<_, Status>::Ok(response.clone())).await {
+                        Ok(_) => {
+                            // item (server response) was queued to be send to client
+                        }
+                        Err(_item) => {
+                            // output_stream was built from rx and both are dropped
+                            break;
+                        }
+                    }
+                }
+
+                // Break on error.
+                if !status.message().eq(&sentinel) {
+                    break;
+                }
+
+                sleep(sleep_interval)
+            }
+
+            println!("\tclient disconnected");
+        });
+
+        let output_stream = ReceiverStream::new(rx);
+        Ok(Response::new(
+            Box::pin(output_stream) as Self::StreamStdioStream
+        ))
+    }
+}
